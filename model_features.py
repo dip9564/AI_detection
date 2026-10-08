@@ -17,7 +17,10 @@ class FeatureExtractor(BaseEstimator, TransformerMixin):
         )
         self.linguistic_scaler = StandardScaler()
         self.semantic_scaler = StandardScaler()
-        self.semantic_model = SentenceTransformer("all-MiniLM-L6-v2")
+        self.semantic_model = SentenceTransformer(
+            "all-MiniLM-L6-v2",
+            device="cpu"
+        )
 
     def fit(self, X, y=None):
         X = list(X)
