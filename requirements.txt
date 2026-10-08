@@ -1,6 +1,7 @@
-joblib
 streamlit
-scikit-learn
+joblib
 numpy
 pandas
+scikit-learn
+scipy
 sentence-transformers
