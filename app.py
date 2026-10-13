@@ -1,43 +1,125 @@
-import __main__
-from pathlib import Path
-import joblib
 import streamlit as st
-from model_features import FeatureExtractor
+import pickle as pkl
+import numpy as np
+from pathlib import Path
+from sentence_transformers import SentenceTransformer
+from temp.linguistic_features import extract_linguistic_features
+from scipy.sparse import hstack, csr_matrix
+
+BASE_DIR = Path(__file__).resolve().parent
+
+@st.cache_resource
+def get_model():
+    with open(BASE_DIR / "final_model.pkl", "rb") as f:
+        model = pkl.load(f)
+
+    with open(BASE_DIR / "scaler.pkl", "rb") as f:
+        scaler = pkl.load(f)
+
+    with open(BASE_DIR / "vectorzier.pkl", "rb") as f:
+        vectorizer = pkl.load(f)
+
+    with open(BASE_DIR / "semantic_scaler.pkl", "rb") as f:
+        semantic_scaler = pkl.load(f)
+
+    semantic_model = SentenceTransformer(
+        "sentence-transformers/paraphrase-MiniLM-L3-v2",
+        device="cpu"
+    )
+
+    return {
+        "model": model,
+        "scaler": scaler,
+        "vectorizer": vectorizer,
+        "semantic_scaler": semantic_scaler,
+        "semantic_model": semantic_model,
+    }
 
 
-MODEL_PATH = Path(__file__).resolve().parent / "finalized_model.joblib"
+def predict(text: str):
+    artifacts = get_model()
 
-# The saved model was created in a notebook, so it references
-# __main__.FeatureExtractor during deserialization.
-__main__.FeatureExtractor = FeatureExtractor
+    model = artifacts["model"]
+    vectorizer = artifacts["vectorizer"]
+    scaler = artifacts["scaler"]
+    semantic_scaler = artifacts["semantic_scaler"]
+    semantic_model = artifacts["semantic_model"]
+
+    # 1. TF-IDF features
+    features_tfidf = vectorizer.transform([text])
+
+    # 2. Linguistic features
+    linguistic = np.asarray(
+        [extract_linguistic_features(text)],
+        dtype=np.float32
+    )
+    features_linguistic = scaler.transform(linguistic)
+
+    # 3. Semantic embeddings
+    semantic = semantic_model.encode(
+        [text],
+        batch_size=1,
+        convert_to_numpy=True,
+        show_progress_bar=False
+    )
+    features_semantic = semantic_scaler.transform(semantic)
+
+    # 4. Combine in exactly the same order as training
+    X_combined = hstack([
+        features_tfidf,
+        csr_matrix(features_linguistic),
+        csr_matrix(features_semantic)
+    ]).tocsr()
+
+    prediction = int(model.predict(X_combined)[0])
+    probabilities = model.predict_proba(X_combined)[0]
+
+    return {
+        "label": "human" if prediction == 0 else "ai",
+        "human_probability": float(probabilities[0]),
+        "ai_probability": float(probabilities[1]),
+    }
 
 
-def load_model():
-    return joblib.load(MODEL_PATH)
+st.set_page_config(
+    page_title="AI Text Detector",
+    page_icon="🤖",
+    layout="wide"
+)
 
-
-st.set_page_config(page_title="AI Text Detector",page_icon="🤖",layout="wide")
 st.title("AI Text Detector")
-st.write("Enter text to estimate whether it was written by AI or a human.")
+st.write("Enter text to send to the AI detection service.")
 
-text = st.text_area("Text to analyze", height=220, placeholder="Paste text here...")
+text = st.text_area(
+    "Text to analyze",
+    height=220,
+    placeholder="Paste text here..."
+)
 
 if st.button("Analyze", type="primary"):
     if not text.strip():
         st.warning("Please enter some text.")
     else:
         try:
-            model = load_model()
-            prediction = int(model.predict([text])[0])
-            probability = model.predict_proba([text])[0]
+            result = predict(text)
 
             st.subheader("Result")
-            st.success("AI detected" if prediction == 1 else "Human-written text")
+            is_ai = result["label"] == "ai"
+
+            if is_ai:
+                st.success("AI detected")
+            else:
+                st.success("Human-written text")
 
             col1, col2 = st.columns(2)
-            col1.metric("AI-written", f"{probability[1] * 100 :.2f}%")
-            col2.metric("Human-written", f"{probability[0] * 100 :.2f}%")
-        except FileNotFoundError:
-            st.error(f"Model file not found")
+            col1.metric(
+                "Human-written",
+                f'{result["human_probability"] * 100:.2f}%'
+            )
+            col2.metric(
+                "AI-written",
+                f'{result["ai_probability"] * 100:.2f}%'
+            )
+
         except Exception as error:
-            st.error(f"Unable to analyze the text: {error}")
+            st.error(f"Prediction failed: {error}")
