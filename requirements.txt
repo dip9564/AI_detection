@@ -1,6 +1,6 @@
-fastapi
-uvicorn[standard]
-joblib
+streamlit
 numpy
 pandas
 scikit-learn==1.8.0
+scipy
+sentence-transformers

@@ -3,7 +3,7 @@ import pickle as pkl
 import numpy as np
 from pathlib import Path
 from sentence_transformers import SentenceTransformer
-from temp.linguistic_features import extract_linguistic_features
+from linguistic_features import extract_linguistic_features
 from scipy.sparse import hstack, csr_matrix
 
 BASE_DIR = Path(__file__).resolve().parent
